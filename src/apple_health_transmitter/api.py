@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from apple_health_transmitter.destinations.sqlite import SQLiteDestination
@@ -188,6 +190,11 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
 app = FastAPI(title="Apple Health Data Transmitter API", version="0.1.0", lifespan=lifespan)
 
+# Mount the static dashboard files
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir), html=True), name="static")
+
 
 def _get_destination() -> SQLiteDestination:
     assert _destination is not None
@@ -262,3 +269,67 @@ def update_sync_status(
 ) -> SyncStatusResponse:
     dest.set_last_synced_at(body.last_synced_at)
     return SyncStatusResponse(last_synced_at=body.last_synced_at)
+
+
+# ---------------------------------------------------------------------------
+# GET / query endpoints (used by the dashboard)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/stats")
+def get_stats(
+    dest: SQLiteDestination = Depends(_get_destination),
+) -> dict:
+    return dest.query_stats()
+
+
+@app.get("/api/v1/records")
+def get_records(
+    type: str | None = Query(None),
+    start_after: str | None = Query(None),
+    start_before: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    dest: SQLiteDestination = Depends(_get_destination),
+) -> list[dict]:
+    return dest.query_records(
+        record_type=type,
+        start_after=start_after,
+        start_before=start_before,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/v1/workouts")
+def get_workouts(
+    type: str | None = Query(None),
+    start_after: str | None = Query(None),
+    start_before: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    dest: SQLiteDestination = Depends(_get_destination),
+) -> list[dict]:
+    return dest.query_workouts(
+        activity_type=type,
+        start_after=start_after,
+        start_before=start_before,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/v1/activity-summaries")
+def get_activity_summaries(
+    start_after: str | None = Query(None),
+    start_before: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    dest: SQLiteDestination = Depends(_get_destination),
+) -> list[dict]:
+    return dest.query_activity_summaries(
+        start_after=start_after,
+        start_before=start_before,
+        limit=limit,
+        offset=offset,
+    )

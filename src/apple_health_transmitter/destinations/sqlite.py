@@ -147,6 +147,137 @@ class SQLiteDestination:
         )
         self._conn.commit()
 
+    # ------------------------------------------------------------------
+    # Query helpers (used by the dashboard / GET endpoints)
+    # ------------------------------------------------------------------
+
+    def _row_factory(self) -> None:
+        """Enable dict-like rows on the connection."""
+        assert self._conn is not None
+        self._conn.row_factory = sqlite3.Row
+
+    def query_records(
+        self,
+        *,
+        record_type: str | None = None,
+        start_after: str | None = None,
+        start_before: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        assert self._conn is not None
+        self._row_factory()
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if record_type:
+            clauses.append("type = ?")
+            params.append(record_type)
+        if start_after:
+            clauses.append("start_date >= ?")
+            params.append(start_after)
+        if start_before:
+            clauses.append("start_date <= ?")
+            params.append(start_before)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM records{where} ORDER BY start_date DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_workouts(
+        self,
+        *,
+        activity_type: str | None = None,
+        start_after: str | None = None,
+        start_before: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        assert self._conn is not None
+        self._row_factory()
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if activity_type:
+            clauses.append("workout_activity_type = ?")
+            params.append(activity_type)
+        if start_after:
+            clauses.append("start_date >= ?")
+            params.append(start_after)
+        if start_before:
+            clauses.append("start_date <= ?")
+            params.append(start_before)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM workouts{where} ORDER BY start_date DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_activity_summaries(
+        self,
+        *,
+        start_after: str | None = None,
+        start_before: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        assert self._conn is not None
+        self._row_factory()
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if start_after:
+            clauses.append("date_components >= ?")
+            params.append(start_after)
+        if start_before:
+            clauses.append("date_components <= ?")
+            params.append(start_before)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM activity_summaries{where} ORDER BY date_components DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_stats(self) -> dict:
+        """Return aggregate counts and distinct types for the dashboard overview."""
+        assert self._conn is not None
+        self._row_factory()
+
+        record_count = self._conn.execute("SELECT COUNT(*) AS cnt FROM records").fetchone()["cnt"]
+        workout_count = self._conn.execute("SELECT COUNT(*) AS cnt FROM workouts").fetchone()["cnt"]
+        summary_count = self._conn.execute("SELECT COUNT(*) AS cnt FROM activity_summaries").fetchone()["cnt"]
+
+        record_types = [
+            r["type"]
+            for r in self._conn.execute(
+                "SELECT DISTINCT type FROM records ORDER BY type"
+            ).fetchall()
+        ]
+        workout_types = [
+            r["workout_activity_type"]
+            for r in self._conn.execute(
+                "SELECT DISTINCT workout_activity_type FROM workouts ORDER BY workout_activity_type"
+            ).fetchall()
+        ]
+
+        # daily record counts for chart (last 30 days with data)
+        daily_records = [
+            dict(r)
+            for r in self._conn.execute(
+                """SELECT date(start_date) AS day, COUNT(*) AS cnt
+                   FROM records
+                   GROUP BY day ORDER BY day DESC LIMIT 30"""
+            ).fetchall()
+        ]
+
+        return {
+            "record_count": record_count,
+            "workout_count": workout_count,
+            "activity_summary_count": summary_count,
+            "record_types": record_types,
+            "workout_types": workout_types,
+            "daily_records": daily_records,
+            "last_synced_at": self.get_last_synced_at(),
+        }
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()

@@ -269,3 +269,107 @@ def test_api_key_correct_key_succeeds(
             )
             assert r.status_code == 200
             assert r.json()["last_synced_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# 9. GET /api/v1/stats - overview statistics
+# ---------------------------------------------------------------------------
+
+
+def test_get_stats_empty(client: TestClient) -> None:
+    r = client.get("/api/v1/stats")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["record_count"] == 0
+    assert data["workout_count"] == 0
+    assert data["activity_summary_count"] == 0
+    assert data["record_types"] == []
+    assert data["workout_types"] == []
+
+
+def test_get_stats_after_inserts(client: TestClient) -> None:
+    client.post("/api/v1/records", json=SAMPLE_RECORDS)
+    client.post("/api/v1/workouts", json=SAMPLE_WORKOUTS)
+    client.post("/api/v1/activity-summaries", json=SAMPLE_ACTIVITY_SUMMARIES)
+
+    r = client.get("/api/v1/stats")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["record_count"] == 2
+    assert data["workout_count"] == 1
+    assert data["activity_summary_count"] == 1
+    assert set(data["record_types"]) == {
+        "HKQuantityTypeIdentifierHeartRate",
+        "HKQuantityTypeIdentifierStepCount",
+    }
+    assert data["workout_types"] == ["HKWorkoutActivityTypeRunning"]
+    assert len(data["daily_records"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 10. GET /api/v1/records - query with filters and pagination
+# ---------------------------------------------------------------------------
+
+
+def test_get_records(client: TestClient) -> None:
+    client.post("/api/v1/records", json=SAMPLE_RECORDS)
+
+    # Fetch all
+    r = client.get("/api/v1/records")
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+    # Filter by type
+    r = client.get("/api/v1/records", params={"type": "HKQuantityTypeIdentifierStepCount"})
+    rows = r.json()
+    assert len(rows) == 1
+    assert rows[0]["type"] == "HKQuantityTypeIdentifierStepCount"
+
+    # Pagination
+    r = client.get("/api/v1/records", params={"limit": 1, "offset": 0})
+    assert len(r.json()) == 1
+    r = client.get("/api/v1/records", params={"limit": 1, "offset": 1})
+    assert len(r.json()) == 1
+    r = client.get("/api/v1/records", params={"limit": 1, "offset": 2})
+    assert len(r.json()) == 0
+
+
+# ---------------------------------------------------------------------------
+# 11. GET /api/v1/workouts - query with filters
+# ---------------------------------------------------------------------------
+
+
+def test_get_workouts(client: TestClient) -> None:
+    client.post("/api/v1/workouts", json=SAMPLE_WORKOUTS)
+
+    r = client.get("/api/v1/workouts")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 1
+    assert rows[0]["workout_activity_type"] == "HKWorkoutActivityTypeRunning"
+
+    # Filter by type - no match
+    r = client.get("/api/v1/workouts", params={"type": "HKWorkoutActivityTypeCycling"})
+    assert len(r.json()) == 0
+
+
+# ---------------------------------------------------------------------------
+# 12. GET /api/v1/activity-summaries - query with filters
+# ---------------------------------------------------------------------------
+
+
+def test_get_activity_summaries(client: TestClient) -> None:
+    client.post("/api/v1/activity-summaries", json=SAMPLE_ACTIVITY_SUMMARIES)
+
+    r = client.get("/api/v1/activity-summaries")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 1
+    assert rows[0]["date_components"] == "2025-01-15"
+
+    # Date range filter
+    r = client.get("/api/v1/activity-summaries", params={"start_after": "2025-01-16"})
+    assert len(r.json()) == 0
+
+    r = client.get("/api/v1/activity-summaries", params={"start_before": "2025-01-14"})
+    assert len(r.json()) == 0
