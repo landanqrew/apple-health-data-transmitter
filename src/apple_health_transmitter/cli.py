@@ -1,3 +1,5 @@
+import os
+
 import click
 
 from apple_health_transmitter.destinations.sqlite import SQLiteDestination
@@ -39,3 +41,20 @@ def load(export_zip: str, db: str, full_sync: bool) -> None:
         click.echo(f"Activity summaries inserted: {counts['activity_summaries']}")
     finally:
         destination.close()
+
+
+@main.command()
+@click.option("--host", default="0.0.0.0", show_default=True, help="Bind address.")
+@click.option("--port", default=8000, show_default=True, help="Bind port.")
+@click.option(
+    "--db",
+    default="health.db",
+    show_default=True,
+    help="Path to SQLite database file.",
+)
+def serve(host: str, port: int, db: str) -> None:
+    """Start the API server to receive health data from the iOS app."""
+    import uvicorn
+
+    os.environ.setdefault("HEALTH_DB_PATH", db)
+    uvicorn.run("apple_health_transmitter.api:app", host=host, port=port)

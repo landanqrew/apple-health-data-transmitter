@@ -2,9 +2,11 @@
 name = "apple-health-transmitter"
 version = "0.1.0"
 description = "Replicate Apple Health data to a persisted data source"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "click>=8.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
 ]
 
 [project.scripts]
